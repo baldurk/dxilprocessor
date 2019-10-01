@@ -1,0 +1,395 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: DXIL.bt
+//   Authors: Baldur Karlsson <baldurk@baldurk.org>
+//   Version: 1.0
+//   Purpose: Parse DXIL container files and bitcode
+//  Category: Graphics Programming
+// File Mask: *.dxbc,*.dxil
+//  ID Bytes: 44 58 42 43
+//   History: 
+//   1.0   2019-10-01 baldurk: Initial release.
+//------------------------------------------------
+
+uint32 PSVComputeMaskDwordsFromVectors(uint32 Vectors)
+{
+  return (Vectors + 7) >> 3;
+}
+
+uint32 PSVComputeInputOutputTableSize(uint32 InputVectors, uint32 OutputVectors)
+{
+  return sizeof(uint32) * PSVComputeMaskDwordsFromVectors(OutputVectors) * InputVectors * 4;
+}
+
+
+struct DXBCFileHeader
+{
+  uint32 fourcc;          // "DXBC"
+  byte hashValue[16];    // unknown hash function and data
+  uint16 majorVersion;
+  uint16 minorVersion;
+  uint32 fileLength;
+  uint32 numChunks;
+  uint32 chunkOffsets[numChunks];
+};
+
+DXBCFileHeader header;
+
+struct DXBCChunkHeader
+{
+  char fourcc[4];
+  uint32 dataLength;
+
+  if(fourcc[0] == 'I' && fourcc[1] == 'S' && fourcc[2] == 'G' && fourcc[3] == '1')
+  {
+    byte supported_data[dataLength];
+  }
+  else if(fourcc[0] == 'O' && fourcc[1] == 'S' && fourcc[2] == 'G' && fourcc[3] == '1')
+  {
+    byte supported_data[dataLength];
+  }
+  else if(fourcc[0] == 'S' && fourcc[1] == 'F' && fourcc[2] == 'I' && fourcc[3] == '0')
+  {
+    int64 flag : 1 <name="Double-precision floating point">;
+    int64 flag : 1 <name="Raw and Structured buffers">;
+    int64 flag : 1 <name="UAVs at every shader stage">;
+    int64 flag : 1 <name="64 UAV slots">;
+    int64 flag : 1 <name="Minimum-precision data types">;
+    int64 flag : 1 <name="Double-precision extensions for 11.1">;
+    int64 flag : 1 <name="Shader extensions for 11.1">;
+    int64 flag : 1 <name="Comparison filtering for feature level 9">;
+    int64 flag : 1 <name="Tiled resources">;
+    int64 flag : 1 <name="PS Output Stencil Ref">;
+    int64 flag : 1 <name="PS Inner Coverage">;
+    int64 flag : 1 <name="Typed UAV Load Additional Formats">;
+    int64 flag : 1 <name="Raster Ordered UAVs">;
+    int64 flag : 1 <name="SV_RenderTargetArrayIndex or SV_ViewportArrayIndex from any shader feeding rasterizer">;
+    int64 flag : 1 <name="Wave level operations">;
+    int64 flag : 1 <name="64-Bit integer">;
+    int64 flag : 1 <name="View Instancing">;
+    int64 flag : 1 <name="Barycentrics">;
+    int64 flag : 1 <name="Use native low precision">;
+    int64 flag : 1 <name="Shading Rate">;
+    int64 flag : 1 <name="Raytracing tier 1.1 features">;
+    int64 flag : 1 <name="Sampler feedback">;
+    int64 unusedflags : 42;
+  }
+  else if(fourcc[0] == 'I' && fourcc[1] == 'L' && fourcc[2] == 'D' && fourcc[3] == 'N')
+  {
+    uint16 Flags;
+    uint16 NameLength;
+    char Name[NameLength];
+    char null;
+    byte padding[dataLength-NameLength-1-4];
+  }
+  else if(fourcc[0] == 'P' && fourcc[1] == 'S' && fourcc[2] == 'V' && fourcc[3] == '0')
+  {
+// all this from DxilPipelineStateValidation.h
+
+struct VSInfo {
+  char OutputPositionPresent;
+};
+struct HSInfo {
+  uint32 InputControlPointCount;      // max control points == 32
+  uint32 OutputControlPointCount;     // max control points == 32
+  uint32 TessellatorDomain;           // hlsl::DXIL::TessellatorDomain/D3D11_SB_TESSELLATOR_DOMAIN
+  uint32 TessellatorOutputPrimitive;  // hlsl::DXIL::TessellatorOutputPrimitive/D3D11_SB_TESSELLATOR_OUTPUT_PRIMITIVE
+};
+struct DSInfo {
+  uint32 InputControlPointCount;      // max control points == 32
+  char OutputPositionPresent;
+  uint32 TessellatorDomain;           // hlsl::DXIL::TessellatorDomain/D3D11_SB_TESSELLATOR_DOMAIN
+};
+struct GSInfo {
+  uint32 InputPrimitive;              // hlsl::DXIL::InputPrimitive/D3D10_SB_PRIMITIVE
+  uint32 OutputTopology;              // hlsl::DXIL::PrimitiveTopology/D3D10_SB_PRIMITIVE_TOPOLOGY
+  uint32 OutputStreamMask;            // max streams == 4
+  char OutputPositionPresent;
+};
+struct PSInfo {
+  char DepthOutput;
+  char SampleFrequency;
+};
+struct MSInfo {
+  uint32 GroupSharedBytesUsed;
+  uint32 GroupSharedBytesDependentOnViewID;
+  uint32 PayloadSizeInBytes;
+  uint16 MaxOutputVertices;
+  uint16 MaxOutputPrimitives;
+};
+struct ASInfo {
+  uint32 PayloadSizeInBytes;
+};
+struct MSInfo1 {
+  unsigned char SigPrimVectors;     // Primitive output for MS
+  unsigned char MeshOutputTopology;
+};
+
+// Versioning is additive and based on size
+struct PSVRuntimeInfo0
+{
+  union {
+    VSInfo VS;
+    HSInfo HS;
+    DSInfo DS;
+    GSInfo GS;
+    PSInfo PS;
+    MSInfo MS;
+    ASInfo AS;
+  } StageInfo;
+  uint32 MinimumExpectedWaveLaneCount;  // minimum lane count required, 0 if unused
+  uint32 MaximumExpectedWaveLaneCount;  // maximum lane count required, 0xffffffff if unused
+};
+
+enum <byte> PSVShaderKind
+{
+  Pixel = 0,
+  Vertex,
+  Geometry,
+  Hull,
+  Domain,
+  Compute,
+  Library,
+  RayGeneration,
+  Intersection,
+  AnyHit,
+  ClosestHit,
+  Miss,
+  Callable,
+  Mesh,
+  Amplification,
+  InvalidStage,
+};
+
+struct PSVRuntimeInfo1 // : public PSVRuntimeInfo0
+{
+  PSVRuntimeInfo0 parent;
+  PSVShaderKind ShaderStage;
+  byte UsesViewID;
+  union {
+    uint16 MaxVertexCount;          // MaxVertexCount for GS only (max 1024)
+    byte SigPatchConstOrPrimVectors;  // Output for HS; Input for DS; Primitive output for MS (overlaps MS1::SigPrimVectors)
+    MSInfo1 MS1;
+  } StageInfo1;
+
+  // PSVSignatureElement counts
+  byte SigInputElements;
+  byte SigOutputElements;
+  byte SigPatchConstOrPrimElements;
+
+  // Number of packed vectors per signature
+  byte SigInputVectors;
+  byte SigOutputVectors[4];      // Array for GS Stream Out Index
+};
+
+enum <uint32> PSVResourceType
+{
+  InvalidResource = 0,
+
+  Sampler,
+  CBV,
+  SRVTyped,
+  SRVRaw,
+  SRVStructured,
+  UAVTyped,
+  UAVRaw,
+  UAVStructured,
+  UAVStructuredWithCounter
+};
+
+struct PSVResourceBindInfo0
+{
+  PSVResourceType ResType;
+  uint32 Space;
+  uint32 LowerBound;
+  uint32 UpperBound;
+};
+
+enum <byte> PSVSemanticKind
+{
+  Arbitrary,
+  VertexID,
+  InstanceID,
+  Position,
+  RenderTargetArrayIndex,
+  ViewPortArrayIndex,
+  ClipDistance,
+  CullDistance,
+  OutputControlPointID,
+  DomainLocation,
+  PrimitiveID,
+  GSInstanceID,
+  SampleIndex,
+  IsFrontFace,
+  Coverage,
+  InnerCoverage,
+  Target,
+  Depth,
+  DepthLessEqual,
+  DepthGreaterEqual,
+  StencilRef,
+  DispatchThreadID,
+  GroupID,
+  GroupIndex,
+  GroupThreadID,
+  TessFactor,
+  InsideTessFactor,
+  ViewID,
+  Barycentrics,
+  InvalidSemantic,
+};
+
+enum <byte> DxilProgramSigCompType
+{
+  Unknown = 0,
+  UInt32 = 1,
+  SInt32 = 2,
+  Float32 = 3,
+  UInt16 = 4,
+  SInt16 = 5,
+  Float16 = 6,
+  UInt64 = 7,
+  SInt64 = 8,
+  Float64 = 9,
+};
+
+enum <byte> InterpolationMode
+{
+  Undefined                   = 0,
+  Constant                    = 1,
+  Linear                      = 2,
+  LinearCentroid              = 3,
+  LinearNoperspective         = 4,
+  LinearNoperspectiveCentroid = 5,
+  LinearSample                = 6,
+  LinearNoperspectiveSample   = 7,
+  InvalidInterp               = 8
+};
+
+struct PSVSignatureElement0
+{
+  uint32 SemanticName;          // Offset into StringTable
+  uint32 SemanticIndexes;       // Offset into PSVSemanticIndexTable, count == Rows
+  byte Rows;                   // Number of rows this element occupies
+  byte StartRow;               // Starting row of packing location if allocated
+  byte Cols : 4;
+  byte StartCol : 2;
+  byte Allocated : 2;          // 0:4 = Cols, 4:6 = StartCol, 6:7 == Allocated
+  PSVSemanticKind SemanticKind;
+  DxilProgramSigCompType ComponentType;
+  InterpolationMode InterpMode;
+  byte DynamicIndexMask : 4;
+  byte OutputStream : 2;   // 0:4 = DynamicIndexMask, 4:6 = OutputStream (0-3)
+  byte Unused : 2;
+  byte Reserved;
+};
+
+    uint32 PSVRuntimeInfo_size;
+    if(PSVRuntimeInfo_size == sizeof(PSVRuntimeInfo0))
+    {
+      PSVRuntimeInfo0 runtimeInfo0;
+    }
+    else if(PSVRuntimeInfo_size == sizeof(PSVRuntimeInfo1))
+    {
+      PSVRuntimeInfo1 runtimeInfo1;
+    }
+    else
+    {
+      error;
+    }
+    uint32 ResourceCount;
+    if(ResourceCount > 0)
+    {
+      uint32 PSVResourceBindInfo_size;
+      if(PSVResourceBindInfo_size != sizeof(PSVResourceBindInfo0)) { error; }
+      PSVResourceBindInfo0 resources[ResourceCount];
+    }
+    if(PSVRuntimeInfo_size == sizeof(PSVRuntimeInfo1))
+    {
+      uint32 StringTableSize;
+      if(StringTableSize > 0)
+      {
+        char StringTable[StringTableSize];
+      }
+      uint32 SemanticIndexTableEntries;
+      if(SemanticIndexTableEntries > 0)
+      {
+        uint32 SemanticIndex[SemanticIndexTableEntries];
+      }
+      if(runtimeInfo1.SigInputElements > 0 || runtimeInfo1.SigOutputElements > 0 || runtimeInfo1.SigPatchConstOrPrimElements > 0)
+      {
+        uint32 PSVSignatureElement_size;
+        if(PSVSignatureElement_size != sizeof(PSVSignatureElement0)) { error; }
+        PSVSignatureElement0 inputElements[runtimeInfo1.SigInputElements];
+        PSVSignatureElement0 outputElements[runtimeInfo1.SigOutputElements];
+        PSVSignatureElement0 patchEtcElements[runtimeInfo1.SigPatchConstOrPrimElements];
+      }
+      local int i=0;
+      local int maskdwords=0;
+      local int tablesize=0;
+      if(runtimeInfo1.UsesViewID)
+      {
+        for(i=0; i < 4; i++)
+        {
+          local byte outvec = runtimeInfo1.SigOutputVectors[i];
+          if(outvec != 0)
+          {
+            maskdwords = PSVComputeMaskDwordsFromVectors(outvec);
+            uint32 OutputsAffectedByViewID[maskdwords];
+          }
+        }
+        if(runtimeInfo1.ShaderStage == Hull && runtimeInfo1.SigPatchConstOrPrimVectors != 0)
+        {
+          maskdwords = PSVComputeMaskDwordsFromVectors(runtimeInfo1.SigPatchConstOrPrimVectors);
+          uint32 PCOutputsAffectedByViewID[maskdwords];
+        }
+      }
+      for(i=0; i < 4; i++)
+      {
+        if(runtimeInfo1.SigInputVectors != 0 && runtimeInfo1.SigOutputVectors[i] != 0)
+        {
+          tablesize = PSVComputeInputOutputTableSize(runtimeInfo1.SigInputVectors, runtimeInfo1.SigOutputVectors[i]);
+          uint32 OutputsAffectedByInputs[tablesize/sizeof(uint32)];
+        }
+        if(runtimeInfo1.ShaderStage != Geometry) break;
+      }
+      if(runtimeInfo1.ShaderStage == Hull && runtimeInfo1.SigPatchConstOrPrimVectors != 0 && runtimeInfo1.SigInputVectors != 0)
+      {
+        tablesize = PSVComputeInputOutputTableSize(runtimeInfo1.SigInputVectors, runtimeInfo1.SigPatchConstOrPrimVectors);
+        uint32 PCOutputsAffectedByInputs[tablesize/sizeof(uint32)];
+      }
+      if(runtimeInfo1.ShaderStage == Domain && runtimeInfo1.SigPatchConstOrPrimVectors != 0 && runtimeInfo1.SigOutputVectors[0] != 0)
+      {
+        tablesize = PSVComputeInputOutputTableSize(runtimeInfo1.SigPatchConstOrPrimVectors, runtimeInfo1.SigOutputVectors[0]);
+        uint32 OutputsAffectedByPCInputs[tablesize/sizeof(uint32)];
+      }
+    }
+  }
+  else if((fourcc[0] == 'D' && fourcc[1] == 'X' && fourcc[2] == 'I' && fourcc[3] == 'L') ||
+          (fourcc[0] == 'I' && fourcc[1] == 'L' && fourcc[2] == 'D' && fourcc[3] == 'B'))
+  {
+    uint32 ProgramVersion <format=hex>;   /// Major and minor version of shader, including type.
+    uint32 SizeInUint32;     /// Size in uint32_t units including this header.
+    char DxilMagic[4];       // 0x4C495844, ASCII "DXIL".
+    uint32 DxilVersion <format=hex>;     // DXIL version.
+    uint32 BitcodeOffset;   // Offset to LLVM bitcode (from DxilMagic).
+    uint32 BitcodeSize;     // Size of LLVM bitcode.
+    byte ExtraHeader[BitcodeOffset-16];
+
+    struct
+    {
+      char id0[2];
+      byte id1[2] <format=hex>;
+BitfieldDisablePadding();
+      byte bitcode[BitcodeSize-4] <format=hex>;
+BitfieldEnablePadding();
+    } bitcode;
+  }
+  else
+  {
+    byte unknown_data[dataLength];
+  }
+};
+
+DXBCChunkHeader chunks[header.numChunks] <optimize=false>; 
