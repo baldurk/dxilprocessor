@@ -22,7 +22,19 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
+#include <stdint.h>
 #include <stdio.h>
+#include <vector>
+
+struct DXBCFileHeader
+{
+  uint32_t fourcc;          // "DXBC"
+  uint32_t hashValue[4];    // unknown hash function and data
+  uint32_t unknown;
+  uint32_t fileLength;
+  uint32_t numChunks;
+  // uint32 chunkOffsets[numChunks]; follows
+};
 
 int main(int argc, char **argv)
 {
@@ -30,6 +42,30 @@ int main(int argc, char **argv)
   {
     fprintf(stderr, "Usage: %s [file.dxbc]\n", argv[0]);
     return 1;
+  }
+
+  FILE *f = fopen(argv[1], "rb");
+  if(f == NULL)
+  {
+    fprintf(stderr, "Couldn't open file %s: %i\n", argv[1], errno);
+    return 2;
+  }
+
+  fseek(f, 0, SEEK_END);
+  long size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+
+  std::vector<char> buffer;
+  buffer.resize((size_t)size);
+
+  size_t numRead = fread(&buffer[0], 1, buffer.size(), f);
+
+  fclose(f);
+
+  if(numRead != buffer.size())
+  {
+    fprintf(stderr, "Couldn't fully read file %s: %i\n", argv[1], errno);
+    return 2;
   }
 
   return 0;
