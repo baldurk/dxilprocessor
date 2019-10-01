@@ -1,0 +1,9 @@
+/Debug/
+/Release/
+/x64/
+/.vs
+*.exe
+*.aps
+*.ilk
+*.manifest
+*.user
