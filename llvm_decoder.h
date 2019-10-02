@@ -28,6 +28,8 @@
 #include <vector>
 #include "llvm_bitreader.h"
 
+namespace LLVMBC
+{
 struct BlockOrRecord
 {
   uint32_t id;
@@ -103,3 +105,5 @@ private:
   std::vector<BlockContext> blockStack;
   std::map<uint32_t, BlockInfo> blockInfo;
 };
+
+};    // namespace LLVMBC

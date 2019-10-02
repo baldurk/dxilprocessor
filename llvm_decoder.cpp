@@ -24,6 +24,8 @@
 
 #include "llvm_decoder.h"
 
+namespace LLVMBC
+{
 enum AbbrevId
 {
   END_BLOCK = 0,
@@ -271,3 +273,5 @@ const AbbrevDesc &BitcodeReader::getAbbrev(uint32_t blockId, uint32_t abbrevID)
 
   return blockStack.back().abbrevs[abbrevID];
 }
+
+};    // namespace LLVMBC

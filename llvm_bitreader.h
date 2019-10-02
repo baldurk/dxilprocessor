@@ -27,6 +27,8 @@
 #include <string.h>
 #include "common.h"
 
+namespace LLVMBC
+{
 class BitReader
 {
 public:
@@ -283,3 +285,5 @@ private:
     Advance(remaining);
   }
 };
+
+};    // namespace LLVMBC
