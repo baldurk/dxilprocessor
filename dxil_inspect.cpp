@@ -45,6 +45,13 @@ Program::Program(const void *bytes, size_t length)
 
   const byte *bitcode = ((const byte *)&header->DxilMagic) + header->BitcodeOffset;
   assert(bitcode + header->BitcodeSize == ptr + length);
+
+  BitcodeReader reader(bitcode, header->BitcodeSize);
+
+  Block root = reader.ReadToplevelBlock();
+
+  // we should have consumed all bits, only one top-level block
+  assert(reader.AtEndOfStream());
 }
 
 struct ILDNHeader
