@@ -45,6 +45,9 @@ struct DXBCChunkHeader
   // byte data[dataLength]; follows
 };
 
+DXIL::DebugName *debug_name = NULL;
+DXIL::Features features;
+
 int main(int argc, char **argv)
 {
   if(argc != 2)
@@ -89,9 +92,9 @@ int main(int argc, char **argv)
 
   const uint32_t *offsets = (const uint32_t *)(header + 1);
 
-  DXIL::Program *dxil = NULL, *debug_dxil = NULL;
-  DXIL::DebugName *debug_name = NULL;
-  DXIL::Features features;
+  const DXBCChunkHeader *best_dxil_chunk = NULL;
+
+  DXIL::Program *dxil = NULL;
 
   for(uint32_t chunkIdx = 0; chunkIdx < header->numChunks; chunkIdx++)
   {
@@ -99,7 +102,9 @@ int main(int argc, char **argv)
 
     if(chunk->fourcc == MAKE_FOURCC('D', 'X', 'I', 'L'))
     {
-      dxil = new DXIL::Program(chunk + 1, chunk->dataLength);
+      // only use DXIL if we don't already have debug DXIL
+      if(!best_dxil_chunk)
+        best_dxil_chunk = chunk;
     }
     else if(chunk->fourcc == MAKE_FOURCC('S', 'F', 'I', '0'))
     {
@@ -111,9 +116,13 @@ int main(int argc, char **argv)
     }
     else if(chunk->fourcc == MAKE_FOURCC('I', 'L', 'D', 'B'))
     {
-      debug_dxil = new DXIL::Program(chunk + 1, chunk->dataLength);
+      // debug DXIL is always the best
+      best_dxil_chunk = chunk;
     }
   }
+
+  if(best_dxil_chunk)
+    dxil = new DXIL::Program(best_dxil_chunk + 1, best_dxil_chunk->dataLength);
 
   if(!dxil)
   {

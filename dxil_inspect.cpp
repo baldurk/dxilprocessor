@@ -25,19 +25,25 @@
 #include "dxil_inspect.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <string>
 #include "common.h"
 #include "llvm_decoder.h"
+
+// hack so we can dump everything together
+extern DXIL::DebugName *debug_name;
+extern DXIL::Features features;
 
 namespace DXIL
 {
 struct ProgramHeader
 {
-  uint32_t ProgramVersion;    // Major and minor version of shader, including type.
-  uint32_t SizeInUint32;      // Size in uint32_t units including this header.
-  uint32_t DxilMagic;         // 0x4C495844, ASCII "DXIL".
-  uint32_t DxilVersion;       // DXIL version.
-  uint32_t BitcodeOffset;     // Offset to LLVM bitcode (from DxilMagic).
-  uint32_t BitcodeSize;       // Size of LLVM bitcode.
+  uint16_t ProgramVersion;
+  uint16_t ProgramType;
+  uint32_t SizeInUint32;     // Size in uint32_t units including this header.
+  uint32_t DxilMagic;        // 0x4C495844, ASCII "DXIL".
+  uint32_t DxilVersion;      // DXIL version.
+  uint32_t BitcodeOffset;    // Offset to LLVM bitcode (from DxilMagic).
+  uint32_t BitcodeSize;      // Size of LLVM bitcode.
 };
 
 enum class KnownBlocks : uint32_t
@@ -442,7 +448,8 @@ static void dumpRecord(uint32_t parentBlock, const LLVMBC::BlockOrRecord &record
 
   if(KnownBlocks(parentBlock) == KnownBlocks::METADATA_BLOCK &&
      (MetaDataRecord(record.id) == MetaDataRecord::STRING_OLD ||
-      MetaDataRecord(record.id) == MetaDataRecord::NAME))
+      MetaDataRecord(record.id) == MetaDataRecord::NAME ||
+      MetaDataRecord(record.id) == MetaDataRecord::KIND))
   {
     printf(" record string = '");
     for(size_t i = 0; i < record.ops.size(); i++)
@@ -499,6 +506,53 @@ static void dumpBlock(const LLVMBC::BlockOrRecord &block, int indent)
   printf(">\n");
 }
 
+static std::string getString(const std::vector<uint64_t> &ops, size_t i = 0)
+{
+  std::string ret;
+  ret.reserve(ops.size());
+  for(; i < ops.size(); i++)
+  {
+    uint64_t c = ops[i];
+    if(c == '\'')
+    {
+      ret.push_back('\\');
+      ret.push_back('\'');
+    }
+    else if(c == '\\')
+    {
+      ret.push_back('\\');
+      ret.push_back('\\');
+    }
+    else if(c == '\r')
+    {
+      ret.push_back('\\');
+      ret.push_back('r');
+    }
+    else if(c == '\n')
+    {
+      ret.push_back('\\');
+      ret.push_back('n');
+    }
+    else if(c == '\t')
+    {
+      ret.push_back('\\');
+      ret.push_back('t');
+    }
+    else if(isprint(char(c)))
+    {
+      ret.push_back(char(c));
+    }
+    else
+    {
+      ret.push_back('\\');
+      ret.push_back('x');
+      ret.push_back('.');
+      ret.push_back('.');
+    }
+  }
+  return ret;
+}
+
 Program::Program(const void *bytes, size_t length)
 {
   const byte *ptr = (const byte *)bytes;
@@ -517,6 +571,221 @@ Program::Program(const void *bytes, size_t length)
 
   // we should have consumed all bits, only one top-level block
   assert(reader.AtEndOfStream());
+
+  const char *shaderName[] = {
+      "Pixel",      "Vertex",  "Geometry",      "Hull",         "Domain",
+      "Compute",    "Library", "RayGeneration", "Intersection", "AnyHit",
+      "ClosestHit", "Miss",    "Callable",      "Mesh",         "Amplification",
+  };
+
+  printf("; %s Shader, compiled under SM%u.%u\n", shaderName[header->ProgramType],
+         (header->ProgramVersion & 0xf0) >> 4, header->ProgramVersion & 0xf);
+
+  if(debug_name)
+    printf("; shader debug name: %s\n;\n", debug_name->name);
+
+  // Input signature and Output signature haven't changed.
+  // Pipeline Runtime Information we have decoded just not implemented here
+
+  std::string datalayout, triple;
+
+#define IS_KNOWN(val, KnownID) (decltype(KnownID)(val) == KnownID)
+
+  const LLVMBC::BlockOrRecord *metadata = NULL;
+
+  for(const LLVMBC::BlockOrRecord &rootblock : root.children)
+  {
+    if(rootblock.IsRecord() && IS_KNOWN(rootblock.id, ModuleRecord::TRIPLE))
+    {
+      printf("target triple = \"%s\"\n", getString(rootblock.ops).c_str());
+    }
+    else if(rootblock.IsRecord() && IS_KNOWN(rootblock.id, ModuleRecord::DATALAYOUT))
+    {
+      printf("target datalayout = \"%s\"\n", getString(rootblock.ops).c_str());
+    }
+    else if(rootblock.IsBlock() && IS_KNOWN(rootblock.id, KnownBlocks::VALUE_SYMTAB_BLOCK))
+    {
+      for(const LLVMBC::BlockOrRecord &symtab : rootblock.children)
+      {
+        printf("function %llu is \"%s\"\n", symtab.ops[0], getString(symtab.ops, 1).c_str());
+      }
+    }
+    else if(rootblock.IsBlock() && IS_KNOWN(rootblock.id, KnownBlocks::METADATA_BLOCK))
+    {
+      for(size_t i = 0; i < rootblock.children.size(); i++)
+      {
+        const LLVMBC::BlockOrRecord &meta = rootblock.children[i];
+        if(IS_KNOWN(meta.id, MetaDataRecord::NAME))
+        {
+          std::string metaName = getString(meta.ops);
+          i++;
+          const LLVMBC::BlockOrRecord &namedNode = rootblock.children[i];
+          assert(IS_KNOWN(namedNode.id, MetaDataRecord::NAMED_NODE));
+
+          printf("!%s = !{", metaName.c_str());
+          bool first = true;
+          for(uint64_t op : namedNode.ops)
+          {
+            if(!first)
+              printf(", ");
+            printf("%llu", op);
+            first = false;
+          }
+          printf("}\n");
+        }
+        else
+        {
+          if(IS_KNOWN(meta.id, MetaDataRecord::KIND))
+          {
+            printf("Kind[%llu] = %s\n", meta.ops[0], getString(meta.ops, 1).c_str());
+            continue;
+          }
+
+          printf("!%u = ", (uint32_t)i);
+
+          auto getMetaString = [&rootblock](uint64_t id) -> std::string {
+            return id ? getString(rootblock.children[id - 1].ops) : "NULL";
+          };
+
+          if(IS_KNOWN(meta.id, MetaDataRecord::STRING_OLD))
+          {
+            printf("\"%s\"", getString(meta.ops).c_str());
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::FILE))
+          {
+            if(meta.ops[0])
+              printf("distinct ");
+
+            printf("!DIFile(");
+            printf("filename: \"%s\"", getMetaString(meta.ops[1]).c_str());
+            printf(", directory: \"%s\"", getMetaString(meta.ops[2]).c_str());
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::NODE) ||
+                  IS_KNOWN(meta.id, MetaDataRecord::DISTINCT_NODE))
+          {
+            if(IS_KNOWN(meta.id, MetaDataRecord::DISTINCT_NODE))
+              printf("distinct ");
+
+            printf("!{");
+            bool first = true;
+            for(uint64_t op : meta.ops)
+            {
+              if(!first)
+                printf(", ");
+              printf("!%llu", op - 1);
+              first = false;
+            }
+            printf("}");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::BASIC_TYPE))
+          {
+            printf("!DIBasicType(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::DERIVED_TYPE))
+          {
+            printf("!DIDerivedType(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::COMPOSITE_TYPE))
+          {
+            printf("!DICompositeType(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::SUBROUTINE_TYPE))
+          {
+            printf("!DISubroutineType(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::TEMPLATE_TYPE))
+          {
+            printf("!DITemplateTypeParameter(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::TEMPLATE_VALUE))
+          {
+            printf("!DITemplateValueParameter(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::SUBPROGRAM))
+          {
+            printf("!DISubprogram(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::LOCATION))
+          {
+            printf("!DILocation(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::LOCAL_VAR))
+          {
+            printf("!DILocalVariable(");
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::VALUE))
+          {
+            // need to decode CONSTANTS_BLOCK and TYPE_BLOCK for this
+            printf("!{values[%llu] interpreted as types[%llu]}", meta.ops[1], meta.ops[0]);
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::EXPRESSION))
+          {
+            // don't decode this yet
+            printf("!DIExpression(");
+            bool first = true;
+            for(uint64_t op : meta.ops)
+            {
+              if(!first)
+                printf(", ");
+              printf("%llu", op);
+              first = false;
+            }
+            printf(")");
+          }
+          else if(IS_KNOWN(meta.id, MetaDataRecord::COMPILE_UNIT))
+          {
+            // should be at least 14 parameters
+            assert(meta.ops.size() >= 14);
+
+            // we expect it to be marked as distinct, but we'll always treat it that way
+            if(meta.ops[0])
+              printf("distinct ");
+            else
+              printf("distinct? ");
+
+            printf("!DICompileUnit(");
+            {
+              printf("language: %s",
+                     meta.ops[1] == 0x4 ? "DW_LANG_C_plus_plus" : "DW_LANG_unknown");
+              printf(", file: !%llu", meta.ops[2] - 1);
+              printf(", producer: \"%s\"", getMetaString(meta.ops[3]).c_str());
+              printf(", isOptimized: %s", meta.ops[4] ? "true" : "false");
+              printf(", flags: \"%s\"", getMetaString(meta.ops[5]).c_str());
+              printf(", runtimeVersion: %llu", meta.ops[6]);
+              printf(", splitDebugFilename: \"%s\"", getMetaString(meta.ops[7]).c_str());
+              printf(", emissionKind: %llu", meta.ops[8]);
+              printf(", enums: !%llu", meta.ops[9] - 1);
+              printf(", retainedTypes: !%llu", meta.ops[10] - 1);
+              printf(", subprograms: !%llu", meta.ops[11] - 1);
+              printf(", globals: !%llu", meta.ops[12] - 1);
+              printf(", imports: !%llu", meta.ops[13] - 1);
+              if(meta.ops.size() >= 15)
+                printf(", dwoId: 0x%llu", meta.ops[14]);
+            }
+            printf(")");
+          }
+          else
+          {
+            assert(false && "unhandled metadata type");
+          }
+
+          printf("\n");
+        }
+      }
+    }
+
+    printf("\n");
+  }
 
   dumpBlock(root, 0);
 }
